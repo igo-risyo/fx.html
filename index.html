@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>FX自動売買シミュレーター（USD/JPY）</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', 'Hiragino Sans', 'Meiryo', sans-serif;
+    background: linear-gradient(135deg, #0f1729 0%, #1a2744 100%);
+    color: #e8eef7;
+    margin: 0; padding: 20px;
+    min-height: 100vh;
+  }
+  h1 {
+    text-align: center;
+    margin: 0 0 6px 0;
+    font-size: 24px;
+    background: linear-gradient(90deg, #4fc3f7, #ffd54f);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .subtitle { text-align: center; color: #9fb3c8; font-size: 12px; margin-bottom: 14px; }
+  .badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: bold;
+    margin-left: 6px;
+  }
+  .market-open { background: #2e7d32; color: white; }
+  .market-closed { background: #c62828; color: white; }
+  .leverage-badge { background: linear-gradient(135deg, #ff5722, #d84315); color: white; }
+  .auto-badge { background: linear-gradient(135deg, #00897b, #004d40); color: white; }
+
+  .container { max-width: 1400px; margin: 0 auto; display: grid; grid-template-columns: 1fr 380px; gap: 20px; }
+  .panel {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px;
+    padding: 18px;
+  }
+  .panel h2 {
+    margin: 0 0 14px 0;
+    font-size: 16px;
+    color: #4fc3f7;
+    border-bottom: 1px solid rgba(79,195,247,0.3);
+    padding-bottom: 8px;
+  }
+
+  .anchor-box {
+    background: rgba(255,213,79,0.08);
+    border: 1px solid rgba(255,213,79,0.3);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+  .anchor-headline {
+    display: flex; justify-content: space-between; align-items: center;
+    font-weight: bold; color: #ffd54f;
+  }
+  .anchor-rate-display {
+    font-size: 28px; color: #ffd54f; font-variant-numeric: tabular-nums;
+    margin-top: 4px;
+  }
+  .anchor-meta {
+    font-size: 11px; color: #9fb3c8; margin-top: 6px;
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px;
+  }
+  .anchor-meta a { color: #4fc3f7; text-decoration: none; }
+  .anchor-meta a:hover { text-decoration: underline; }
+  details.advanced {
+    margin-top: 8px;
+    background: rgba(0,0,0,0.2);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+  details.advanced summary {
+    cursor: pointer; color: #9fb3c8; user-select: none;
+  }
+  details.advanced summary:hover { color: #4fc3f7; }
+  details.advanced .anchor-row {
+    display: flex; gap: 6px; margin-top: 8px;
+  }
+  details.advanced input {
+    flex: 1; padding: 6px 8px;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,213,79,0.4);
+    border-radius: 4px;
+    color: #ffd54f; font-size: 14px; font-weight: bold;
+    font-variant-numeric: tabular-nums;
+  }
+  details.advanced button {
+    padding: 6px 12px;
+    background: linear-gradient(135deg, #ffd54f, #ff9800);
+    color: #1a2744;
+    border: none; border-radius: 4px;
+    font-weight: bold; cursor: pointer; font-size: 12px;
+    flex: 0 0 auto;
+  }
+
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
+  .stat-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 10px; text-align: center;
+  }
+  .stat-label { font-size: 11px; color: #9fb3c8; margin-bottom: 6px; }
+  .stat-value { font-size: 18px; font-weight: bold; font-variant-numeric: tabular-nums; }
+  .price-box { text-align: center; margin-bottom: 12px; }
+  .current-price {
+    font-size: 42px; font-weight: bold;
+    font-variant-numeric: tabular-nums;
+    color: #ffd54f; transition: color 0.2s;
+  }
+  .price-time { font-size: 13px; color: #9fb3c8; margin-top: 4px; }
+  .chart-wrap { height: 290px; position: relative; }
+  .form-row {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 10px; gap: 10px;
+  }
+  .form-row label { font-size: 13px; color: #c0d0e0; flex: 1; }
+  .form-row input, .form-row select {
+    width: 130px; padding: 7px 10px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 6px; color: #e8eef7; font-size: 13px;
+  }
+  button {
+    padding: 10px 16px; border: none; border-radius: 8px;
+    font-size: 14px; font-weight: bold; cursor: pointer;
+    transition: all 0.2s; flex: 1;
+  }
+  .btn-start { background: linear-gradient(135deg, #4caf50, #2e7d32); color: white; }
+  .btn-stop  { background: linear-gradient(135deg, #f44336, #c62828); color: white; }
+  .btn-reset { background: linear-gradient(135deg, #607d8b, #37474f); color: white; }
+  .btn-buy { background: linear-gradient(135deg, #2196f3, #0d47a1); color: white; }
+  .btn-sell { background: linear-gradient(135deg, #e91e63, #880e4f); color: white; }
+  button:hover { transform: translateY(-1px); filter: brightness(1.1); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .button-row { display: flex; gap: 8px; margin-top: 8px; }
+  .position-info {
+    background: rgba(255,213,79,0.08);
+    border: 1px solid rgba(255,213,79,0.3);
+    border-radius: 8px;
+    padding: 10px; margin: 10px 0;
+    font-size: 13px; line-height: 1.7;
+  }
+  .no-position { color: #9fb3c8; font-style: italic; text-align: center; padding: 8px; }
+  .log {
+    max-height: 220px; overflow-y: auto;
+    font-family: 'Consolas', monospace; font-size: 12px;
+    background: rgba(0,0,0,0.3); border-radius: 6px; padding: 10px;
+  }
+  .log-entry { padding: 4px 6px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+  .log-buy { color: #64b5f6; }
+  .log-sell-win { color: #81c784; }
+  .log-sell-loss { color: #e57373; }
+  .log-info { color: #b0bec5; }
+  .log-warn { color: #ffb74d; }
+  .log-real { color: #ce93d8; }
+  .profit-pos { color: #81c784; }
+  .profit-neg { color: #e57373; }
+  .recommended-tag {
+    display: inline-block; background: #ff9800; color: white;
+    font-size: 10px; padding: 2px 6px; border-radius: 4px;
+    margin-left: 6px; vertical-align: middle;
+  }
+  .strategy-desc {
+    font-size: 12px; color: #9fb3c8;
+    background: rgba(79,195,247,0.05);
+    border-left: 3px solid #4fc3f7;
+    padding: 8px 10px; margin-bottom: 12px;
+    border-radius: 4px; line-height: 1.5;
+  }
+  .margin-bar {
+    height: 8px; background: rgba(255,255,255,0.08);
+    border-radius: 4px; overflow: hidden; margin-top: 4px;
+  }
+  .margin-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #81c784, #ffd54f, #e57373);
+    transition: width 0.3s;
+  }
+  .info-banner {
+    background: rgba(0,137,123,0.1);
+    border: 1px solid rgba(0,137,123,0.4);
+    border-radius: 8px;
+    padding: 8px 12px; margin-bottom: 12px;
+    font-size: 12px; line-height: 1.5;
+  }
+  .info-banner b { color: #ffd54f; }
+  .pulse {
+    display: inline-block;
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #00e676; margin-right: 6px;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(0,230,118,0.7); }
+    70% { box-shadow: 0 0 0 8px rgba(0,230,118,0); }
+    100% { box-shadow: 0 0 0 0 rgba(0,230,118,0); }
+  }
+  @media (max-width: 1100px) {
+    .container { grid-template-columns: 1fr; }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<h1>📈 FX自動売買シミュレーター（USD/JPY）<span class="badge leverage-badge">レバ 25倍</span><span class="badge auto-badge">自動更新</span></h1>
+<div class="subtitle">
+  <span id="marketStatus" class="badge market-closed">市場確認中...</span>
+  元金10万円・実勢レート自動連動シミュレーション
+</div>
+
+<div class="container">
+  <div>
+    <div class="panel">
+      <div class="info-banner">
+        <span class="pulse"></span>
+        <b>1分自動連動モード</b>: 実勢レートを毎分自動取得します。画面は60秒ごとに最新値へ更新され、シミュレーション状態は保持されます（残高・ポジション・履歴）。
+      </div>
+
+      <!-- ============================================================
+           AUTO_UPDATE_BLOCK_START
+           この区間は scheduled task によって自動更新されます。
+           手動編集はしないでください。
+           ============================================================ -->
+      <script>
+        // 自動更新される定数（scheduled task が書き換える）
+        window.FX_AUTO = {
+          rate: 159.43,
+          updatedAt: '2026-04-25 14:10 JST (動作確認済)',
+          source: 'WebSearch (auto-updated)',
+          dayHigh: 159.84,
+          dayLow: 159.34,
+          dayOpen: 159.59,
+          recentDaily: [
+            157.87, 158.12, 158.45, 158.92, 159.10,
+            158.75, 159.05, 159.42, 159.74, 159.30, 159.43
+          ]
+        };
+      </script>
+      <!-- AUTO_UPDATE_BLOCK_END -->
+
+      <div class="anchor-box">
+        <div class="anchor-headline">
+          <span>🎯 実勢レート（自動取得）</span>
+          <span style="font-size:11px; color:#9fb3c8; font-weight:normal;">USD/JPY</span>
+        </div>
+        <div class="anchor-rate-display" id="anchorDisplay">159.430</div>
+        <div class="anchor-meta">
+          <span>📅 最終更新: <b id="updatedAt" style="color:#ffd54f">-</b></span>
+          <span>📡 ソース: <span id="source" style="color:#81c784">-</span></span>
+        </div>
+        <div class="anchor-meta" style="margin-top:4px;">
+          <span>本日高値: <b id="dayHigh">-</b></span>
+          <span>本日安値: <b id="dayLow">-</b></span>
+          <span>始値: <b id="dayOpen">-</b></span>
+        </div>
+        <div class="anchor-meta" style="margin-top:4px;">
+          📊 検証用:
+          <a href="https://finance.yahoo.com/quote/USDJPY=X/" target="_blank">Yahoo</a>
+          <a href="https://www.google.com/finance/quote/USD-JPY" target="_blank">Google</a>
+          <a href="https://www.boj.or.jp/statistics/market/forex/fxdaily/" target="_blank">日銀</a>
+          <a href="https://tradingeconomics.com/japan/currency" target="_blank">TradingEconomics</a>
+        </div>
+        <details class="advanced">
+          <summary>⚙ 詳細設定（手動でレート上書き）</summary>
+          <div style="font-size:11px; color:#9fb3c8; margin-top:6px;">
+            通常は自動取得値で十分です。週末や緊急時に最新値を反映したい場合のみ手動入力してください。
+          </div>
+          <div class="anchor-row">
+            <input type="number" id="anchorRate" step="0.01" min="50" max="300">
+            <button id="btnUpdateAnchor">適用</button>
+          </div>
+        </details>
+      </div>
+
+      <div class="price-box">
+        <div class="current-price" id="currentPrice">159.430</div>
+        <div class="price-time" id="priceTime">準備完了 ・「▶ 開始」を押してください</div>
+      </div>
+
+      <div class="stats">
+        <div class="stat-card">
+          <div class="stat-label">純資産（円）</div>
+          <div class="stat-value" id="balance">¥100,000</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">総損益</div>
+          <div class="stat-value" id="totalPnl">¥0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">取引 / 勝率</div>
+          <div class="stat-value" id="tradeStats">0回 / -</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">証拠金維持率</div>
+          <div class="stat-value" id="marginLevel">-</div>
+        </div>
+      </div>
+
+      <div class="chart-wrap">
+        <canvas id="priceChart"></canvas>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top: 20px;">
+      <h2>📋 取引ログ</h2>
+      <div class="log" id="log">
+        <div class="log-entry log-info">起動完了。「▶ 開始」で自動売買を開始してください</div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <h2>⚙️ 自動売買設定</h2>
+
+      <div class="strategy-desc" id="strategyDesc">
+        <b>おすすめ設定（バランス型）</b><br>10pipsで利確、10pips下落で損切り。
+      </div>
+
+      <div class="form-row">
+        <label>戦略プリセット</label>
+        <select id="presetSelect">
+          <option value="balanced">⭐ おすすめ（バランス型）</option>
+          <option value="safe">🛡️ 安全型</option>
+          <option value="aggressive">🔥 積極型</option>
+          <option value="scalping">⚡ スキャルピング</option>
+          <option value="custom">🛠️ カスタム</option>
+        </select>
+      </div>
+
+      <div class="form-row">
+        <label>取引数量（通貨）</label>
+        <input type="number" id="lotSize" value="10000" step="1000" min="1000">
+      </div>
+
+      <div class="form-row">
+        <label>利確（pips）<span class="recommended-tag">+10</span></label>
+        <input type="number" id="takeProfit" value="10" step="1" min="1">
+      </div>
+
+      <div class="form-row">
+        <label>損切り（pips）<span class="recommended-tag">-10</span></label>
+        <input type="number" id="stopLoss" value="10" step="1" min="1">
+      </div>
+
+      <div class="form-row">
+        <label>エントリー方向</label>
+        <select id="direction">
+          <option value="buy">買い（ロング）</option>
+          <option value="sell">売り（ショート）</option>
+          <option value="trend" selected>トレンド追従</option>
+        </select>
+      </div>
+
+      <div class="form-row">
+        <label>tick速度</label>
+        <select id="speed">
+          <option value="500">0.5秒</option>
+          <option value="200" selected>0.2秒</option>
+          <option value="100">0.1秒</option>
+          <option value="50">0.05秒</option>
+        </select>
+      </div>
+
+      <div class="form-row">
+        <label>ボラティリティ</label>
+        <select id="volatility">
+          <option value="low">低（穏やか）</option>
+          <option value="normal" selected>標準（実測値ベース）</option>
+          <option value="high">高（変動激しい）</option>
+        </select>
+      </div>
+
+      <div class="button-row">
+        <button class="btn-start" id="btnStart">▶ 開始</button>
+        <button class="btn-stop" id="btnStop" disabled>⏸ 停止</button>
+        <button class="btn-reset" id="btnReset">⟲ リセット</button>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top: 20px;">
+      <h2>📊 現在のポジション</h2>
+      <div id="positionBox">
+        <div class="no-position">ポジションなし</div>
+      </div>
+      <div style="font-size:12px; color:#9fb3c8; margin: 8px 0;">
+        必要証拠金: <b id="requiredMargin" style="color:#ffd54f">-</b> ／
+        余力: <b id="freeMargin" style="color:#81c784">¥100,000</b>
+      </div>
+      <div class="button-row">
+        <button class="btn-buy" id="btnManualBuy">手動：買い</button>
+        <button class="btn-sell" id="btnManualSell">手動：売り</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// 定数
+// ============================================================
+const LEVERAGE = 25;
+const STOPOUT_LEVEL = 50;
+const MARGIN_CALL_LEVEL = 100;
+
+// 自動更新ブロックから取得
+const AUTO = window.FX_AUTO || { rate: 159.30, updatedAt: 'unknown', source: 'fallback', recentDaily: [] };
+
+// ============================================================
+// 状態
+// ============================================================
+const state = {
+  running: false,
+  balance: 100000,
+  initialBalance: 100000,
+  anchorRate: AUTO.rate,
+  price: AUTO.rate,
+  prevPrice: AUTO.rate,
+  prices: [],
+  trendBias: 0,
+  position: null,
+  trades: [],
+  wins: 0,
+  losses: 0,
+  intervalId: null,
+  tickCount: 0,
+};
+
+const PRESETS = {
+  balanced: { name: 'おすすめ（バランス型）', desc: '10pipsで利確、10pips下落で損切り。レバレッジ25倍では1万通貨で必要証拠金約6.4万円。', lot: 10000, tp: 10, sl: 10, dir: 'trend' },
+  safe:     { name: '安全型', desc: '小ロット・短期決済の保守的戦略。5pips利確/5pips損切り。', lot: 5000, tp: 5, sl: 5, dir: 'trend' },
+  aggressive:{ name: '積極型', desc: '30pipsの利確、15pipsの損切り。リスク・リワード比1:2。', lot: 10000, tp: 30, sl: 15, dir: 'trend' },
+  scalping: { name: 'スキャルピング', desc: '3pipsで素早く利確、3pipsで損切り。回転率重視。', lot: 10000, tp: 3, sl: 3, dir: 'trend' },
+};
+
+const VOLATILITY = {
+  low:    { noise: 0.008, trendStep: 0.0005, pull: 0.020 },
+  normal: { noise: 0.018, trendStep: 0.0008, pull: 0.015 },
+  high:   { noise: 0.035, trendStep: 0.0015, pull: 0.010 },
+};
+
+// ============================================================
+// チャート
+// ============================================================
+const ctx = document.getElementById('priceChart').getContext('2d');
+const chart = new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [
+      { label: 'USD/JPY', data: [], borderColor: '#4fc3f7', backgroundColor: 'rgba(79,195,247,0.1)', borderWidth: 2, fill: true, tension: 0.2, pointRadius: 0 },
+      { label: 'エントリー', data: [], borderColor: '#2196f3', backgroundColor: '#2196f3', showLine: false, pointRadius: 6, pointStyle: 'triangle' },
+      { label: '決済', data: [], borderColor: '#81c784', backgroundColor: '#81c784', showLine: false, pointRadius: 6, pointStyle: 'rectRot' },
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false, animation: false,
+    plugins: { legend: { labels: { color: '#c0d0e0', font: { size: 11 } } } },
+    scales: {
+      x: { ticks: { color: '#7a8b9e', maxTicksLimit: 8 }, grid: { color: 'rgba(255,255,255,0.05)' } },
+      y: { ticks: { color: '#c0d0e0', callback: v => v.toFixed(3) }, grid: { color: 'rgba(255,255,255,0.05)' } },
+    }
+  }
+});
+
+// 起動時に過去データをチャートにプリロード
+function preloadHistory() {
+  const daily = AUTO.recentDaily || [];
+  daily.forEach((p, i) => {
+    state.prices.push({ x: -daily.length + i, y: p });
+  });
+  if (state.prices.length > 0) {
+    chart.data.labels = state.prices.map(p => p.x);
+    chart.data.datasets[0].data = state.prices.map(p => p.y);
+    chart.update('none');
+  }
+}
+
+// ============================================================
+// ユーティリティ
+// ============================================================
+function fmtYen(v) { const sign = v < 0 ? '-' : ''; return sign + '¥' + Math.abs(Math.round(v)).toLocaleString(); }
+function pipsFromPrice(diff) { return diff / 0.01; }
+
+function addLog(message, cls = 'log-info') {
+  const log = document.getElementById('log');
+  const entry = document.createElement('div');
+  entry.className = 'log-entry ' + cls;
+  const time = new Date().toLocaleTimeString('ja-JP');
+  entry.innerHTML = `<span style="color:#7a8b9e">[${time}]</span> ${message}`;
+  log.insertBefore(entry, log.firstChild);
+  while (log.children.length > 100) log.removeChild(log.lastChild);
+}
+
+function getMarketStatus() {
+  const now = new Date();
+  const utcDay = now.getUTCDay();
+  const utcHour = now.getUTCHours();
+  if (utcDay === 6) return { open: false, reason: '土曜日（市場閉場）' };
+  if (utcDay === 0 && utcHour < 22) return { open: false, reason: '日曜日（市場閉場）' };
+  if (utcDay === 5 && utcHour >= 22) return { open: false, reason: '金曜夜（市場閉場）' };
+  return { open: true, reason: '市場開場中' };
+}
+
+// ============================================================
+// レバレッジ・証拠金
+// ============================================================
+function calcRequiredMargin(lot, price) { return (lot * price) / LEVERAGE; }
+function calcUnrealizedPnL() {
+  if (!state.position) return 0;
+  const pos = state.position;
+  let pips = pos.type === 'buy' ? pipsFromPrice(state.price - pos.entry) : pipsFromPrice(pos.entry - state.price);
+  return pips * pos.lot * 0.01;
+}
+function calcEquity() { return state.balance + calcUnrealizedPnL(); }
+function calcUsedMargin() { return state.position ? calcRequiredMargin(state.position.lot, state.position.entry) : 0; }
+function calcMarginLevel() { const used = calcUsedMargin(); return used === 0 ? null : (calcEquity() / used) * 100; }
+function calcFreeMargin() { return calcEquity() - calcUsedMargin(); }
+
+// ============================================================
+// 自動売買
+// ============================================================
+function detectTrend() {
+  if (state.prices.length < 5) return 'buy';
+  const recent = state.prices.slice(-5).map(p => p.y);
+  const avg = recent.reduce((a, b) => a + b, 0) / recent.length;
+  return recent[recent.length - 1] >= avg ? 'buy' : 'sell';
+}
+
+function tryEnter() {
+  if (state.position) return;
+  const lot = parseInt(document.getElementById('lotSize').value);
+  const required = calcRequiredMargin(lot, state.price);
+  if (required > calcFreeMargin()) {
+    if (state.tickCount % 100 === 0) addLog(`⚠️ 余力不足。必要 ${fmtYen(required)} / 余力 ${fmtYen(calcFreeMargin())}`, 'log-warn');
+    return;
+  }
+  let dir = document.getElementById('direction').value;
+  if (dir === 'trend') dir = detectTrend();
+  state.position = { type: dir, entry: state.price, lot, time: state.tickCount };
+  addLog(`🟦 ${dir === 'buy' ? '買い' : '売り'}エントリー @ ${state.price.toFixed(3)} （${lot.toLocaleString()}通貨・必要証拠金 ${fmtYen(required)}）`, 'log-buy');
+  chart.data.datasets[1].data.push({ x: state.tickCount, y: state.price });
+  updatePositionUI();
+}
+
+function tryExit() {
+  if (!state.position) return;
+  const tp = parseFloat(document.getElementById('takeProfit').value);
+  const sl = parseFloat(document.getElementById('stopLoss').value);
+  const pos = state.position;
+  let pips = pos.type === 'buy' ? pipsFromPrice(state.price - pos.entry) : pipsFromPrice(pos.entry - state.price);
+  const ml = calcMarginLevel();
+  if (ml !== null && ml <= STOPOUT_LEVEL) { closePosition(`🚨 強制ロスカット（維持率${ml.toFixed(0)}%）`, pips, true); return; }
+  if (pips >= tp) closePosition(`利確（+${pips.toFixed(1)}pips）`, pips);
+  else if (pips <= -sl) closePosition(`損切り（${pips.toFixed(1)}pips）`, pips);
+}
+
+function closePosition(reason, pips, forced = false) {
+  const pos = state.position;
+  const pnl = pips * pos.lot * 0.01;
+  state.balance += pnl;
+  state.trades.push({ ...pos, exit: state.price, pnl, pips });
+  if (pnl >= 0) state.wins++; else state.losses++;
+  let cls = pnl >= 0 ? 'log-sell-win' : 'log-sell-loss';
+  if (forced) cls = 'log-warn';
+  const sign = pnl >= 0 ? '+' : '';
+  addLog(`🔻 決済 @ ${state.price.toFixed(3)} ・${reason} ・損益: <b>${sign}${fmtYen(pnl)}</b>`, cls);
+  chart.data.datasets[2].data.push({ x: state.tickCount, y: state.price });
+  state.position = null;
+  updatePositionUI();
+  updateStats();
+}
+
+// ============================================================
+// UI更新
+// ============================================================
+function updatePriceUI() {
+  const el = document.getElementById('currentPrice');
+  el.textContent = state.price.toFixed(3);
+  if (state.price > state.prevPrice) el.style.color = '#81c784';
+  else if (state.price < state.prevPrice) el.style.color = '#e57373';
+  else el.style.color = '#ffd54f';
+
+  const dev = state.price - state.anchorRate;
+  const sign = dev >= 0 ? '+' : '';
+  document.getElementById('priceTime').textContent =
+    `🎯 基準 ${state.anchorRate.toFixed(3)} 円 ・乖離 ${sign}${dev.toFixed(3)} ・ ${state.running ? '稼働中' : '停止中'}`;
+}
+
+function updateStats() {
+  const equity = calcEquity();
+  document.getElementById('balance').textContent = fmtYen(equity);
+  const pnl = equity - state.initialBalance;
+  const pnlEl = document.getElementById('totalPnl');
+  pnlEl.textContent = (pnl >= 0 ? '+' : '') + fmtYen(pnl);
+  pnlEl.className = 'stat-value ' + (pnl >= 0 ? 'profit-pos' : 'profit-neg');
+  document.getElementById('tradeStats').textContent = state.trades.length > 0
+    ? `${state.trades.length}回 / ${(state.wins / state.trades.length * 100).toFixed(0)}%` : '0回 / -';
+  const ml = calcMarginLevel();
+  const mlEl = document.getElementById('marginLevel');
+  if (ml === null) { mlEl.textContent = '-'; mlEl.style.color = '#e8eef7'; }
+  else {
+    mlEl.textContent = ml.toFixed(0) + '%';
+    mlEl.style.color = ml < STOPOUT_LEVEL ? '#e57373' : ml < MARGIN_CALL_LEVEL ? '#ffb74d' : '#81c784';
+  }
+  const lot = parseInt(document.getElementById('lotSize').value);
+  const required = calcRequiredMargin(lot, state.price);
+  document.getElementById('requiredMargin').textContent = fmtYen(required);
+  document.getElementById('freeMargin').textContent = fmtYen(calcFreeMargin());
+}
+
+function updatePositionUI() {
+  const box = document.getElementById('positionBox');
+  if (!state.position) { box.innerHTML = '<div class="no-position">ポジションなし</div>'; return; }
+  const pos = state.position;
+  let pips = pos.type === 'buy' ? pipsFromPrice(state.price - pos.entry) : pipsFromPrice(pos.entry - state.price);
+  const unrealizedPnl = pips * pos.lot * 0.01;
+  const pnlClass = unrealizedPnl >= 0 ? 'profit-pos' : 'profit-neg';
+  const sign = unrealizedPnl >= 0 ? '+' : '';
+  const required = calcRequiredMargin(pos.lot, pos.entry);
+  const ml = calcMarginLevel();
+  const mlPct = Math.min(ml || 0, 500);
+  box.innerHTML = `
+    <div class="position-info">
+      <div>方向: <b>${pos.type === 'buy' ? '🔵 買い（ロング）' : '🔴 売り（ショート）'}</b></div>
+      <div>エントリー: <b>${pos.entry.toFixed(3)}</b> ・現在: <b>${state.price.toFixed(3)}</b></div>
+      <div>数量: <b>${pos.lot.toLocaleString()}通貨</b>（レバ${LEVERAGE}倍）</div>
+      <div>使用証拠金: <b>${fmtYen(required)}</b></div>
+      <div>含み損益: <b class="${pnlClass}">${sign}${fmtYen(unrealizedPnl)}（${sign}${pips.toFixed(1)}pips）</b></div>
+      <div>証拠金維持率: <b>${ml ? ml.toFixed(0) + '%' : '-'}</b>
+        <div class="margin-bar"><div class="margin-bar-fill" style="width:${Math.min(mlPct/3, 100)}%"></div></div>
+      </div>
+    </div>`;
+}
+
+// ============================================================
+// 価格生成（基準レート + 現実的な値動き）
+// ============================================================
+function nextPrice() {
+  const v = VOLATILITY[document.getElementById('volatility').value];
+  const deviation = state.price - state.anchorRate;
+  const pull = -deviation * v.pull;
+  state.trendBias += (Math.random() - 0.5) * v.trendStep;
+  state.trendBias = Math.max(-0.005, Math.min(0.005, state.trendBias));
+  const noise = (Math.random() - 0.5) * v.noise;
+  return state.price + pull + state.trendBias + noise;
+}
+
+// ============================================================
+// メインループ
+// ============================================================
+function tick() {
+  state.prevPrice = state.price;
+  state.price = nextPrice();
+  state.tickCount++;
+
+  state.prices.push({ x: state.tickCount, y: state.price });
+  if (state.prices.length > 120) state.prices.shift();
+
+  chart.data.labels = state.prices.map(p => p.x);
+  chart.data.datasets[0].data = state.prices.map(p => p.y);
+  const minX = state.prices[0].x;
+  chart.data.datasets[1].data = chart.data.datasets[1].data.filter(p => p.x >= minX);
+  chart.data.datasets[2].data = chart.data.datasets[2].data.filter(p => p.x >= minX);
+  chart.update('none');
+
+  updatePriceUI();
+  updateStats();
+  updatePositionUI();
+
+  if (state.position) tryExit();
+  else tryEnter();
+}
+
+// ============================================================
+// イベント
+// ============================================================
+document.getElementById('btnUpdateAnchor').addEventListener('click', () => {
+  const newRate = parseFloat(document.getElementById('anchorRate').value);
+  if (isNaN(newRate) || newRate < 50 || newRate > 300) {
+    addLog('⚠️ 無効なレート（50〜300の範囲）', 'log-warn');
+    return;
+  }
+  const oldRate = state.anchorRate;
+  state.anchorRate = newRate;
+  document.getElementById('anchorDisplay').textContent = newRate.toFixed(3);
+  if (!state.running) { state.price = newRate; state.prevPrice = newRate; }
+  addLog(`🎯 [手動] 基準レート上書き: ${oldRate.toFixed(3)} → ${newRate.toFixed(3)}`, 'log-real');
+  updatePriceUI(); updateStats();
+});
+
+document.getElementById('btnStart').addEventListener('click', () => {
+  if (state.running) return;
+  state.running = true;
+  document.getElementById('btnStart').disabled = true;
+  document.getElementById('btnStop').disabled = false;
+  const speed = parseInt(document.getElementById('speed').value);
+  state.intervalId = setInterval(tick, speed);
+  addLog(`▶ シミュレーション開始（基準レート: ${state.anchorRate.toFixed(3)} 円）`, 'log-info');
+});
+
+document.getElementById('btnStop').addEventListener('click', () => {
+  if (!state.running) return;
+  state.running = false;
+  clearInterval(state.intervalId);
+  document.getElementById('btnStart').disabled = false;
+  document.getElementById('btnStop').disabled = true;
+  addLog('⏸ 停止', 'log-info');
+  updatePriceUI();
+});
+
+document.getElementById('btnReset').addEventListener('click', () => {
+  if (state.running) { clearInterval(state.intervalId); state.running = false; }
+  state.balance = 100000; state.initialBalance = 100000;
+  state.price = state.anchorRate; state.prevPrice = state.anchorRate;
+  state.prices = []; state.position = null; state.trades = [];
+  state.wins = 0; state.losses = 0; state.tickCount = 0; state.trendBias = 0;
+  chart.data.labels = []; chart.data.datasets.forEach(ds => ds.data = []); chart.update();
+  preloadHistory();
+  document.getElementById('btnStart').disabled = false;
+  document.getElementById('btnStop').disabled = true;
+  document.getElementById('log').innerHTML = '<div class="log-entry log-info">リセットしました</div>';
+  updatePriceUI(); updateStats(); updatePositionUI();
+});
+
+document.getElementById('presetSelect').addEventListener('change', (e) => applyPreset(e.target.value));
+
+function applyPreset(key) {
+  if (key === 'custom') { document.getElementById('strategyDesc').innerHTML = '<b>カスタム設定</b><br>レバ25倍では含み損が一気に膨らむため、損切り幅とロットに注意。'; return; }
+  const p = PRESETS[key]; if (!p) return;
+  document.getElementById('lotSize').value = p.lot;
+  document.getElementById('takeProfit').value = p.tp;
+  document.getElementById('stopLoss').value = p.sl;
+  document.getElementById('direction').value = p.dir;
+  document.getElementById('strategyDesc').innerHTML = `<b>${p.name}</b><br>${p.desc}`;
+  updateStats();
+}
+document.getElementById('lotSize').addEventListener('input', updateStats);
+
+document.getElementById('btnManualBuy').addEventListener('click', () => {
+  if (state.position) { addLog('⚠️ ポジション保有中', 'log-warn'); return; }
+  const lot = parseInt(document.getElementById('lotSize').value);
+  const required = calcRequiredMargin(lot, state.price);
+  if (required > calcFreeMargin()) { addLog('⚠️ 余力不足', 'log-warn'); return; }
+  state.position = { type: 'buy', entry: state.price, lot, time: state.tickCount };
+  addLog(`🟦 [手動] 買い @ ${state.price.toFixed(3)}`, 'log-buy');
+  chart.data.datasets[1].data.push({ x: state.tickCount, y: state.price });
+  updatePositionUI(); updateStats();
+});
+
+document.getElementById('btnManualSell').addEventListener('click', () => {
+  if (state.position) {
+    let pips = state.position.type === 'buy' ? pipsFromPrice(state.price - state.position.entry) : pipsFromPrice(state.position.entry - state.price);
+    closePosition('手動決済', pips);
+  } else {
+    const lot = parseInt(document.getElementById('lotSize').value);
+    const required = calcRequiredMargin(lot, state.price);
+    if (required > calcFreeMargin()) { addLog('⚠️ 余力不足', 'log-warn'); return; }
+    state.position = { type: 'sell', entry: state.price, lot, time: state.tickCount };
+    addLog(`🟥 [手動] 売り @ ${state.price.toFixed(3)}`, 'log-buy');
+    chart.data.datasets[1].data.push({ x: state.tickCount, y: state.price });
+    updatePositionUI(); updateStats();
+  }
+});
+
+// ============================================================
+// 状態の永続化（localStorage で60秒ごとの自動リロードに耐える）
+// ============================================================
+const STATE_KEY = 'fx_sim_state_v1';
+
+function saveState() {
+  try {
+    const snap = {
+      balance: state.balance,
+      initialBalance: state.initialBalance,
+      anchorRate: state.anchorRate,
+      price: state.price,
+      prevPrice: state.prevPrice,
+      prices: state.prices.slice(-120),
+      trendBias: state.trendBias,
+      position: state.position,
+      trades: state.trades.slice(-100),
+      wins: state.wins,
+      losses: state.losses,
+      tickCount: state.tickCount,
+      wasRunning: state.running,
+      entryMarkers: chart.data.datasets[1].data.slice(-50),
+      exitMarkers: chart.data.datasets[2].data.slice(-50),
+      logHTML: document.getElementById('log').innerHTML,
+      formValues: {
+        preset: document.getElementById('presetSelect').value,
+        lot: document.getElementById('lotSize').value,
+        tp: document.getElementById('takeProfit').value,
+        sl: document.getElementById('stopLoss').value,
+        dir: document.getElementById('direction').value,
+        speed: document.getElementById('speed').value,
+        vol: document.getElementById('volatility').value,
+      },
+      savedAt: Date.now(),
+    };
+    localStorage.setItem(STATE_KEY, JSON.stringify(snap));
+  } catch (e) { /* localStorage unavailable: fail silently */ }
+}
+
+function restoreState() {
+  try {
+    const raw = localStorage.getItem(STATE_KEY);
+    if (!raw) return false;
+    const snap = JSON.parse(raw);
+    // 30分以上経過していたら破棄（古すぎ）
+    if (Date.now() - snap.savedAt > 1800000) { localStorage.removeItem(STATE_KEY); return false; }
+
+    state.balance = snap.balance;
+    state.initialBalance = snap.initialBalance;
+    state.price = snap.price;
+    state.prevPrice = snap.prevPrice;
+    state.prices = snap.prices || [];
+    state.trendBias = snap.trendBias || 0;
+    state.position = snap.position;
+    state.trades = snap.trades || [];
+    state.wins = snap.wins || 0;
+    state.losses = snap.losses || 0;
+    state.tickCount = snap.tickCount || 0;
+
+    if (snap.formValues) {
+      const f = snap.formValues;
+      document.getElementById('presetSelect').value = f.preset;
+      document.getElementById('lotSize').value = f.lot;
+      document.getElementById('takeProfit').value = f.tp;
+      document.getElementById('stopLoss').value = f.sl;
+      document.getElementById('direction').value = f.dir;
+      document.getElementById('speed').value = f.speed;
+      document.getElementById('volatility').value = f.vol;
+    }
+
+    chart.data.labels = state.prices.map(p => p.x);
+    chart.data.datasets[0].data = state.prices.map(p => p.y);
+    chart.data.datasets[1].data = snap.entryMarkers || [];
+    chart.data.datasets[2].data = snap.exitMarkers || [];
+    chart.update('none');
+
+    if (snap.logHTML) document.getElementById('log').innerHTML = snap.logHTML;
+    return snap.wasRunning === true;
+  } catch (e) { return false; }
+}
+
+// アンカーレートの差分反映（自動リロード後、新しい AUTO.rate に滑らかに移行）
+function applyNewAnchor(newAnchor) {
+  if (Math.abs(newAnchor - state.anchorRate) < 0.001) return;
+  const oldAnchor = state.anchorRate;
+  state.anchorRate = newAnchor;
+  // 価格も新アンカーに少し寄せる（急ジャンプを避ける）
+  const drift = (newAnchor - oldAnchor) * 0.5;
+  state.price += drift;
+  state.prevPrice = state.price;
+  addLog(`🔄 自動更新: 基準 ${oldAnchor.toFixed(3)} → ${newAnchor.toFixed(3)}`, 'log-real');
+}
+
+// ============================================================
+// 自動リロード（60秒ごと、最新の FX_AUTO を反映）
+// ============================================================
+let reloadTimerId = null;
+function scheduleAutoReload() {
+  if (reloadTimerId) clearTimeout(reloadTimerId);
+  reloadTimerId = setTimeout(() => {
+    saveState();
+    location.reload();
+  }, 60000);
+}
+
+// ============================================================
+// 起動
+// ============================================================
+(() => {
+  applyPreset('balanced');
+  const status = getMarketStatus();
+  const statusEl = document.getElementById('marketStatus');
+  statusEl.textContent = status.open ? '🟢 ' + status.reason : '🔴 ' + status.reason;
+  statusEl.className = 'badge ' + (status.open ? 'market-open' : 'market-closed');
+
+  // 自動取得値をUIに反映
+  document.getElementById('anchorDisplay').textContent = AUTO.rate.toFixed(3);
+  document.getElementById('updatedAt').textContent = AUTO.updatedAt;
+  document.getElementById('source').textContent = AUTO.source;
+  document.getElementById('dayHigh').textContent = AUTO.dayHigh ? AUTO.dayHigh.toFixed(3) : '-';
+  document.getElementById('dayLow').textContent = AUTO.dayLow ? AUTO.dayLow.toFixed(3) : '-';
+  document.getElementById('dayOpen').textContent = AUTO.dayOpen ? AUTO.dayOpen.toFixed(3) : '-';
+  document.getElementById('anchorRate').value = AUTO.rate.toFixed(2);
+
+  // 復元 or 初期化
+  const wasRunning = restoreState();
+  if (wasRunning) {
+    // 自動リロード後の続行: 新しいアンカーを適用してシミュレーション再開
+    applyNewAnchor(AUTO.rate);
+    state.running = true;
+    document.getElementById('btnStart').disabled = true;
+    document.getElementById('btnStop').disabled = false;
+    const speed = parseInt(document.getElementById('speed').value);
+    state.intervalId = setInterval(tick, speed);
+    addLog(`▶ 自動リロード後に再開（基準 ${state.anchorRate.toFixed(3)} 円）`, 'log-info');
+  } else {
+    state.anchorRate = AUTO.rate;
+    state.price = AUTO.rate;
+    state.prevPrice = AUTO.rate;
+    preloadHistory();
+    addLog('💡 FX自動売買シミュレーター（1分自動連動・レバ25倍）', 'log-info');
+    addLog(`🎯 自動取得レート: ${AUTO.rate.toFixed(3)} 円（${AUTO.updatedAt}）`, 'log-real');
+    addLog(`📡 ソース: ${AUTO.source}`, 'log-info');
+    addLog('💡 平日1分ごとにバックグラウンドで自動更新されます', 'log-info');
+  }
+
+  updatePriceUI();
+  updateStats();
+  updatePositionUI();
+
+  // 60秒ごとに自動リロード（実行中・停止中問わず）
+  scheduleAutoReload();
+
+  // 状態保存（2秒ごと、シミュレーション継続のための軽量バックアップ）
+  setInterval(() => { if (state.running) saveState(); }, 2000);
+
+  // 終了時にも保存
+  window.addEventListener('beforeunload', saveState);
+})();
+</script>
+
+</body>
+</html>
