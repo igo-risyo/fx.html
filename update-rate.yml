@@ -1,0 +1,116 @@
+name: Update USD/JPY Rate
+
+# 30分ごとに USD/JPY の実勢レートを取得し、index.html を更新する
+# 平日のみ実行（FX市場の稼働日に合わせる）
+
+on:
+  schedule:
+    # 平日（Mon-Fri）30分ごと、UTC基準
+    # GitHub Actions の cron は UTC のみ。実時間で約5〜15分の遅延あり
+    - cron: '*/30 * * * 1-5'
+  workflow_dispatch:  # 手動実行も可能
+
+permissions:
+  contents: write  # index.html をコミットするために必要
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch latest USD/JPY rate
+        id: rate
+        run: |
+          # frankfurter.app は CORS対応・APIキー不要の無料為替API
+          response=$(curl -sf --max-time 15 "https://api.frankfurter.app/latest?from=USD&to=JPY")
+          rate=$(echo "$response" | jq -r '.rates.JPY')
+
+          # サニティチェック: USD/JPYは100〜250の範囲のはず
+          if [ -z "$rate" ] || [ "$rate" = "null" ]; then
+            echo "Failed to parse rate from API response: $response"
+            exit 1
+          fi
+          if (( $(echo "$rate < 100 || $rate > 250" | bc -l) )); then
+            echo "Rate out of sanity range: $rate"
+            exit 1
+          fi
+
+          # JST時刻
+          updated_at=$(TZ='Asia/Tokyo' date '+%Y-%m-%d %H:%M JST')
+
+          echo "rate=$rate" >> "$GITHUB_OUTPUT"
+          echo "updated_at=$updated_at" >> "$GITHUB_OUTPUT"
+          echo "Got rate: $rate at $updated_at"
+
+      - name: Update index.html
+        run: |
+          rate="${{ steps.rate.outputs.rate }}"
+          updated_at="${{ steps.rate.outputs.updated_at }}"
+
+          python3 <<'PYEOF'
+          import re, os
+
+          rate = float(os.environ['RATE'])
+          updated_at = os.environ['UPDATED_AT']
+
+          with open('index.html', 'r', encoding='utf-8') as f:
+              content = f.read()
+
+          # window.FX_AUTO オブジェクトを丸ごと書き換える
+          # rate / updatedAt / source の3つのフィールドを更新
+          # recentDaily の末尾に新値を追加し、14個までに制限
+
+          # 既存の recentDaily 配列を取得
+          m = re.search(r'recentDaily:\s*\[([^\]]+)\]', content)
+          if m:
+              nums = [float(x.strip()) for x in m.group(1).split(',') if x.strip()]
+              nums.append(rate)
+              nums = nums[-14:]
+              new_recent = ', '.join(f'{n:.3f}' for n in nums)
+          else:
+              new_recent = f'{rate:.3f}'
+
+          new_block = f"""        window.FX_AUTO = {{
+          rate: {rate:.3f},
+          updatedAt: '{updated_at}',
+          source: 'GitHub Actions + frankfurter.app',
+          dayHigh: null,
+          dayLow: null,
+          dayOpen: null,
+          recentDaily: [{new_recent}]
+        }};"""
+
+          content_new = re.sub(
+              r'window\.FX_AUTO\s*=\s*\{[^}]*recentDaily:\s*\[[^\]]*\][^}]*\};',
+              new_block,
+              content,
+              count=1,
+              flags=re.DOTALL
+          )
+
+          if content == content_new:
+              print('WARNING: No replacement performed. Pattern not found.')
+              raise SystemExit(1)
+
+          with open('index.html', 'w', encoding='utf-8') as f:
+              f.write(content_new)
+
+          print(f'Updated rate to {rate} at {updated_at}')
+          PYEOF
+        env:
+          RATE: ${{ steps.rate.outputs.rate }}
+          UPDATED_AT: ${{ steps.rate.outputs.updated_at }}
+
+      - name: Commit and push
+        run: |
+          git config user.name "fx-rate-bot"
+          git config user.email "fx-rate-bot@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git add index.html
+          git commit -m "chore: update USD/JPY rate to ${{ steps.rate.outputs.rate }}"
+          git push
