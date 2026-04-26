@@ -224,7 +224,7 @@
     <div class="panel">
       <div class="info-banner">
         <span class="pulse"></span>
-        <b>1分自動連動モード</b>: 実勢レートを毎分自動取得します。画面は60秒ごとに最新値へ更新され、シミュレーション状態は保持されます（残高・ポジション・履歴）。
+        <b>自動連動モード</b>: GitHub Actions が Yahoo Finance から最短間隔でレートを取得（実効5〜15分）。画面は60秒ごとに最新値を反映し、シミュレーション状態は保持されます。
       </div>
 
       <!-- ============================================================
@@ -233,11 +233,12 @@
            手動編集はしないでください。
            ============================================================ -->
       <script>
-        // 自動更新される定数（scheduled task が書き換える）
+        // 自動更新される定数（GitHub Actions が書き換える）
+        // .github/workflows/update-rate.yml を参照
         window.FX_AUTO = {
           rate: 159.43,
-          updatedAt: '2026-04-25 14:10 JST (動作確認済)',
-          source: 'WebSearch (auto-updated)',
+          updatedAt: '初期値 (GitHub Actions未実行)',
+          source: 'GitHub Actions + Yahoo Finance',
           dayHigh: 159.84,
           dayLow: 159.34,
           dayOpen: 159.59,
@@ -914,10 +915,10 @@ function scheduleAutoReload() {
     state.price = AUTO.rate;
     state.prevPrice = AUTO.rate;
     preloadHistory();
-    addLog('💡 FX自動売買シミュレーター（1分自動連動・レバ25倍）', 'log-info');
+    addLog('💡 FX自動売買シミュレーター（自動連動・レバ25倍）', 'log-info');
     addLog(`🎯 自動取得レート: ${AUTO.rate.toFixed(3)} 円（${AUTO.updatedAt}）`, 'log-real');
     addLog(`📡 ソース: ${AUTO.source}`, 'log-info');
-    addLog('💡 平日1分ごとにバックグラウンドで自動更新されます', 'log-info');
+    addLog('💡 GitHub Actions が最短間隔（実効5〜15分）でレートを更新します', 'log-info');
   }
 
   updatePriceUI();
