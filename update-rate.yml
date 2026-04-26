@@ -1,17 +1,22 @@
 name: Update USD/JPY Rate
 
-# 30分ごとに USD/JPY の実勢レートを取得し、index.html を更新する
-# 平日のみ実行（FX市場の稼働日に合わせる）
+# 可能な最短間隔で USD/JPY の実勢レートを取得し、index.html を更新する
+# データソース: Yahoo Finance（数分単位で変動する実勢レート）
+# 注意: GitHub Actions の cron は高負荷時に遅延します。実際の実行間隔は 5〜15分程度。
 
 on:
   schedule:
-    # 平日（Mon-Fri）30分ごと、UTC基準
-    # GitHub Actions の cron は UTC のみ。実時間で約5〜15分の遅延あり
-    - cron: '*/30 * * * 1-5'
-  workflow_dispatch:  # 手動実行も可能
+    # 毎分（GitHub側で実際にはジッタが入る）
+    - cron: '* * * * *'
+  workflow_dispatch:
 
 permissions:
-  contents: write  # index.html をコミットするために必要
+  contents: write
+
+# 同じワークフローが重なったら最新だけ実行
+concurrency:
+  group: rate-update
+  cancel-in-progress: false
 
 jobs:
   update:
@@ -20,53 +25,102 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Fetch latest USD/JPY rate
+      - name: Fetch latest USD/JPY rate from Yahoo Finance
         id: rate
         run: |
-          # frankfurter.app は CORS対応・APIキー不要の無料為替API
-          response=$(curl -sf --max-time 15 "https://api.frankfurter.app/latest?from=USD&to=JPY")
-          rate=$(echo "$response" | jq -r '.rates.JPY')
+          set -e
+          # Yahoo Finance API（APIキー不要、サーバーサイドからは利用可能）
+          UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36'
+          URL='https://query1.finance.yahoo.com/v8/finance/chart/USDJPY=X?interval=1m&range=1d'
 
-          # サニティチェック: USD/JPYは100〜250の範囲のはず
+          response=$(curl -sf --max-time 20 -A "$UA" "$URL" || true)
+          if [ -z "$response" ]; then
+            echo "::warning::Yahoo Finance unreachable, falling back to frankfurter.app"
+            response=$(curl -sf --max-time 15 "https://api.frankfurter.app/latest?from=USD&to=JPY")
+            rate=$(echo "$response" | jq -r '.rates.JPY')
+            day_high="null"; day_low="null"; day_open="null"
+          else
+            rate=$(echo "$response" | jq -r '.chart.result[0].meta.regularMarketPrice')
+            day_high=$(echo "$response" | jq -r '.chart.result[0].meta.regularMarketDayHigh // "null"')
+            day_low=$(echo "$response" | jq -r '.chart.result[0].meta.regularMarketDayLow // "null"')
+            day_open=$(echo "$response" | jq -r '.chart.result[0].meta.regularMarketOpen // "null"')
+          fi
+
+          # サニティチェック
           if [ -z "$rate" ] || [ "$rate" = "null" ]; then
-            echo "Failed to parse rate from API response: $response"
+            echo "::error::Failed to parse rate"
             exit 1
           fi
           if (( $(echo "$rate < 100 || $rate > 250" | bc -l) )); then
-            echo "Rate out of sanity range: $rate"
+            echo "::error::Rate out of sanity range: $rate"
             exit 1
           fi
 
           # JST時刻
           updated_at=$(TZ='Asia/Tokyo' date '+%Y-%m-%d %H:%M JST')
 
-          echo "rate=$rate" >> "$GITHUB_OUTPUT"
-          echo "updated_at=$updated_at" >> "$GITHUB_OUTPUT"
-          echo "Got rate: $rate at $updated_at"
+          # 数値の桁を3桁に揃える
+          rate=$(printf '%.3f' "$rate")
+          [ "$day_high" != "null" ] && day_high=$(printf '%.3f' "$day_high")
+          [ "$day_low" != "null" ] && day_low=$(printf '%.3f' "$day_low")
+          [ "$day_open" != "null" ] && day_open=$(printf '%.3f' "$day_open")
+
+          {
+            echo "rate=$rate"
+            echo "day_high=$day_high"
+            echo "day_low=$day_low"
+            echo "day_open=$day_open"
+            echo "updated_at=$updated_at"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "rate=$rate high=$day_high low=$day_low open=$day_open at $updated_at"
+
+      - name: Check if rate changed materially
+        id: check
+        run: |
+          # index.html の現在の rate を取得
+          current=$(grep -oP "rate:\s*\K[0-9.]+" index.html | head -1 || echo "0")
+          new="${{ steps.rate.outputs.rate }}"
+          # 0.005円（0.5pips）未満の差分はスキップ（コミット履歴の汚染防止）
+          diff=$(echo "$current $new" | awk '{d=$1-$2; if (d<0) d=-d; print d}')
+          should_update=$(echo "$diff" | awk '{print ($1 >= 0.005) ? "yes" : "no"}')
+          echo "current=$current new=$new diff=$diff should_update=$should_update"
+          echo "should_update=$should_update" >> "$GITHUB_OUTPUT"
 
       - name: Update index.html
+        if: steps.check.outputs.should_update == 'yes'
+        env:
+          RATE: ${{ steps.rate.outputs.rate }}
+          DAY_HIGH: ${{ steps.rate.outputs.day_high }}
+          DAY_LOW: ${{ steps.rate.outputs.day_low }}
+          DAY_OPEN: ${{ steps.rate.outputs.day_open }}
+          UPDATED_AT: ${{ steps.rate.outputs.updated_at }}
         run: |
-          rate="${{ steps.rate.outputs.rate }}"
-          updated_at="${{ steps.rate.outputs.updated_at }}"
-
           python3 <<'PYEOF'
           import re, os
 
           rate = float(os.environ['RATE'])
+          dh = os.environ['DAY_HIGH']
+          dl = os.environ['DAY_LOW']
+          do = os.environ['DAY_OPEN']
           updated_at = os.environ['UPDATED_AT']
+
+          def js_num(v):
+              if v == 'null' or v == '': return 'null'
+              return f'{float(v):.3f}'
 
           with open('index.html', 'r', encoding='utf-8') as f:
               content = f.read()
 
-          # window.FX_AUTO オブジェクトを丸ごと書き換える
-          # rate / updatedAt / source の3つのフィールドを更新
-          # recentDaily の末尾に新値を追加し、14個までに制限
-
-          # 既存の recentDaily 配列を取得
+          # 既存の recentDaily 配列を保持しつつ、日付が変わっていたら新値を追記
           m = re.search(r'recentDaily:\s*\[([^\]]+)\]', content)
           if m:
               nums = [float(x.strip()) for x in m.group(1).split(',') if x.strip()]
-              nums.append(rate)
+              # 末尾と差が大きい場合のみ追加（日次データなので頻繁な追加は不要）
+              if not nums or abs(nums[-1] - rate) > 0.5:
+                  nums.append(rate)
+              else:
+                  nums[-1] = rate  # 同日内なら最新値で上書き
               nums = nums[-14:]
               new_recent = ', '.join(f'{n:.3f}' for n in nums)
           else:
@@ -75,10 +129,10 @@ jobs:
           new_block = f"""        window.FX_AUTO = {{
           rate: {rate:.3f},
           updatedAt: '{updated_at}',
-          source: 'GitHub Actions + frankfurter.app',
-          dayHigh: null,
-          dayLow: null,
-          dayOpen: null,
+          source: 'GitHub Actions + Yahoo Finance',
+          dayHigh: {js_num(dh)},
+          dayLow: {js_num(dl)},
+          dayOpen: {js_num(do)},
           recentDaily: [{new_recent}]
         }};"""
 
@@ -91,26 +145,26 @@ jobs:
           )
 
           if content == content_new:
-              print('WARNING: No replacement performed. Pattern not found.')
-              raise SystemExit(1)
+              raise SystemExit('Pattern not found in index.html')
 
           with open('index.html', 'w', encoding='utf-8') as f:
               f.write(content_new)
-
-          print(f'Updated rate to {rate} at {updated_at}')
+          print(f'Updated to rate={rate} at {updated_at}')
           PYEOF
-        env:
-          RATE: ${{ steps.rate.outputs.rate }}
-          UPDATED_AT: ${{ steps.rate.outputs.updated_at }}
 
       - name: Commit and push
+        if: steps.check.outputs.should_update == 'yes'
         run: |
           git config user.name "fx-rate-bot"
           git config user.email "fx-rate-bot@users.noreply.github.com"
           if git diff --quiet; then
-            echo "No changes to commit"
+            echo "No changes"
             exit 0
           fi
           git add index.html
-          git commit -m "chore: update USD/JPY rate to ${{ steps.rate.outputs.rate }}"
+          git commit -m "chore: USD/JPY → ${{ steps.rate.outputs.rate }} (${{ steps.rate.outputs.updated_at }})"
           git push
+
+      - name: Skip notice
+        if: steps.check.outputs.should_update != 'yes'
+        run: echo "Rate change too small (< 0.5 pips), skipping commit"
